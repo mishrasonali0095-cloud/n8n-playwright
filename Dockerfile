@@ -17,11 +17,15 @@ RUN apk add --no-cache \
     nodejs \
     npm
 
-# Install Playwright (without --with-deps)
+# Install Playwright + Chromium
 RUN npm install -g playwright && \
     npx playwright install chromium
 
 # 👇 Copy your custom scripts into container
 COPY scripts /home/node/scripts
+
+# Make sure node user owns the cache
+RUN mkdir -p /home/node/.cache/ms-playwright && \
+    chown -R node:node /home/node/.cache
 
 USER node
