@@ -1,14 +1,10 @@
-FROM mcr.microsoft.com/playwright:v1.48.2-focal
+FROM mcr.microsoft.com/playwright:v1.55.0-focal
 
-# Install latest npm
-RUN npm install -g npm@latest
-
-# Install n8n (global)
-RUN npm install -g n8n
+# Install npm + n8n
+RUN npm install -g npm@latest n8n@latest
 
 # Copy your automation scripts
 COPY scripts /home/node/scripts
 
 EXPOSE 5678
-
 CMD ["n8n", "start"]
