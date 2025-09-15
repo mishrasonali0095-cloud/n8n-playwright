@@ -1,31 +1,10 @@
-FROM n8nio/n8n:latest
+FROM mcr.microsoft.com/playwright:focal
 
-USER root
+# Install n8n
+RUN npm install -g n8n
 
-# Install dependencies for Playwright on Alpine
-RUN apk add --no-cache \
-    bash \
-    curl \
-    unzip \
-    chromium \
-    nss \
-    freetype \
-    freetype-dev \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    nodejs \
-    npm
-
-# Install Playwright + Chromium
-RUN npm install -g playwright && \
-    npx playwright install chromium
-
-# 👇 Copy your custom scripts into container
+# Copy scripts
 COPY scripts /home/node/scripts
 
-# Make sure node user owns the cache
-RUN mkdir -p /home/node/.cache/ms-playwright && \
-    chown -R node:node /home/node/.cache
-
-USER node
+EXPOSE 5678
+CMD ["n8n", "start"]
