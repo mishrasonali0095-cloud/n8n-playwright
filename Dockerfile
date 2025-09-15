@@ -1,9 +1,8 @@
-FROM playwright:v1.55.0-focal
+FROM mcr.microsoft.com/playwright:v1.48.2-focal
 
-# Install latest npm + n8n
-RUN npm install -g npm@latest n8n@latest
+# Install npm + n8n, but pin Playwright to match
+RUN npm install -g npm@latest n8n@latest playwright@1.48.2
 
-# Copy automation scripts
 COPY scripts /home/node/scripts
 
 EXPOSE 5678
