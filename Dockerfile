@@ -1,18 +1,27 @@
-FROM node:20-bullseye
+FROM n8nio/n8n:latest
 
-# Install system deps
-RUN apt-get update && \
-    apt-get install -y wget gnupg ca-certificates && \
-    npm install -g npm@latest
+USER root
 
-# Install n8n
-RUN npm install -g n8n
+# Install dependencies for Playwright on Alpine
+RUN apk add --no-cache \
+    bash \
+    curl \
+    unzip \
+    chromium \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    nodejs \
+    npm
 
-# Install Playwright Chromium
+# Install Playwright (without --with-deps)
 RUN npm install -g playwright && \
-    npx playwright install --with-deps chromium
+    npx playwright install chromium
 
-# Expose port for n8n
-EXPOSE 5678
+# 👇 Copy your custom scripts into container
+COPY scripts /home/node/scripts
 
-CMD ["n8n", "start"]
+USER node
