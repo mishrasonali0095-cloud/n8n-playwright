@@ -1,55 +1,84 @@
 const { chromium } = require("playwright");
 
-(async () => {
-  const FB_USER = process.env.FB_USER;
-  const FB_PASS = process.env.FB_PASS;
-  const pageUrl = process.argv[2]; // post URL passed from n8n
+async function run() {
+  const username = process.env.FB_USER;
+  const password = process.env.FB_PASS;
+  const pageUrl = "https://www.facebook.com/Engagehubtique";
 
-  if (!FB_USER || !FB_PASS) {
-    console.error("FB_USER and FB_PASS env variables are required");
-    process.exit(1);
-  }
-
-  console.log("Launching browser...");
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  console.log("Logging in...");
-  await page.goto("https://www.facebook.com/login", { waitUntil: "networkidle" });
-  await page.fill('input[name="email"]', FB_USER);
-  await page.fill('input[name="pass"]', FB_PASS);
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: "networkidle" }),
-    page.click('button[name="login"]'),
-  ]);
+  try {
+    console.log("Logging in...");
+    await page.goto("https://www.facebook.com/login", { waitUntil: "networkidle" });
+    await page.fill("#email", username);
+    await page.fill("#pass", password);
+    await page.click('button[name="login"]');
+    await page.waitForLoadState("networkidle");
 
-  console.log("Opening post:", pageUrl);
-  await page.goto(pageUrl, { waitUntil: "networkidle" });
-  await page.waitForTimeout(4000);
+    console.log("Go to friend's page...");
+    await page.goto(pageUrl, { waitUntil: "networkidle" });
+    await page.waitForTimeout(5000);
 
-  // Scroll to reveal footer
-  await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-  await page.waitForTimeout(2000);
+    // scroll to load posts
+    await page.mouse.wheel(0, 2000);
+    await page.waitForTimeout(3000);
 
-  console.log("Clicking Share...");
-  const shareBtn = page.locator('div[aria-label="Share"]');
-  await shareBtn.first().click();
+    console.log("Extracting latest posts...");
+    const postLinks = await page.$$eval('a[href*="pfbid"]', els =>
+      els.map(e => e.href).filter((v, i, a) => a.indexOf(v) === i)
+    );
 
-  console.log("Waiting for Share options...");
-  await page.waitForSelector('span:text("Share to a group")', { timeout: 10000 });
-  await page.locator('span:text("Share to a group")').click();
+    const latestPosts = postLinks.slice(0, 2);
+    console.log("Found posts:", latestPosts);
 
-  console.log("Selecting group...");
-  await page.waitForSelector('input[aria-label="Search for a group"]', { timeout: 10000 });
-  // Type your group name (or leave blank if default works)
-  await page.keyboard.type("My Group Name");
-  await page.keyboard.press("Enter");
+    for (const post of latestPosts) {
+      console.log("Opening post:", post);
+      await page.goto(post, { waitUntil: "domcontentloaded" });
+      await page.waitForTimeout(5000);
 
-  console.log("Posting...");
-  await page.waitForSelector('div[aria-label="Post"]', { timeout: 10000 });
-  await page.locator('div[aria-label="Post"]').click();
+      try {
+        console.log("Clicking Share...");
+        await page.click('div[aria-label="Share"], span:has-text("Share")', { timeout: 10000 });
+        await page.waitForTimeout(3000);
 
-  console.log("✅ Successfully shared!");
-  await browser.close();
-})();
+        console.log("Choosing Share to a group...");
+        await page.click('span:has-text("Share to a group")', { timeout: 10000 });
+        await page.waitForTimeout(5000);
+
+        console.log("Selecting first group...");
+        // 🔧 Adjust selector if you want to target a specific group by name
+        const groups = await page.$$('div[role="option"]');
+        if (groups.length > 0) {
+          await groups[0].click();
+        } else {
+          console.log("No groups found in dropdown!");
+          continue;
+        }
+
+        await page.waitForTimeout(3000);
+
+        console.log("Clicking Post...");
+        await page.click('div[aria-label="Post"], div[role="button"]:has-text("Post")', { timeout: 10000 });
+        await page.waitForTimeout(5000);
+
+        console.log("Shared successfully:", post);
+      } catch (e) {
+        console.error("Error sharing post:", post, e.message);
+      }
+
+      // Random delay between posts
+      const delay = Math.floor(Math.random() * 5000) + 5000;
+      console.log(`Waiting ${delay}ms before next post...`);
+      await page.waitForTimeout(delay);
+    }
+
+  } catch (err) {
+    console.error("Fatal error:", err.message);
+  } finally {
+    await browser.close();
+  }
+}
+
+run();
