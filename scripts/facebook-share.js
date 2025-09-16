@@ -1,7 +1,3 @@
-// facebook-share.js
-// Run with: node /home/node/scripts/facebook-share.js
-// Needs env vars: FB_USER, FB_PASS
-
 const { chromium } = require("playwright");
 
 (async () => {
@@ -11,7 +7,7 @@ const { chromium } = require("playwright");
 
   const fbUser = process.env.FB_USER;
   const fbPass = process.env.FB_PASS;
-  const friendPage = "https://www.facebook.com/Engagehubtique"; // <-- your friend’s page
+  const friendPage = "https://www.facebook.com/Engagehubtique";
 
   try {
     console.log("Logging in...");
@@ -24,7 +20,6 @@ const { chromium } = require("playwright");
     console.log("Go to friend's page...");
     await page.goto(friendPage, { waitUntil: "networkidle" });
 
-    // grab latest 2 posts
     const postLinks = await page.$$eval("a[href*='/posts/']", links =>
       [...new Set(links.map(l => l.href))].slice(0, 2)
     );
@@ -35,40 +30,79 @@ const { chromium } = require("playwright");
       console.log("Opening post:", postUrl);
       await page.goto(postUrl, { waitUntil: "networkidle" });
 
-      // Click Share button
-      console.log("Clicking Share...");
-      await page.click('div[aria-label="Send this to friends or post it on your profile."]');
+      // Try multiple possible share button selectors
+      const shareSelectors = [
+        'div[aria-label="Send this to friends or post it on your profile."]',
+        'div[aria-label="Share"]',
+        'span:has-text("Share")',
+        'div[role="button"]:has-text("Share")'
+      ];
+
+      let clicked = false;
+      for (const selector of shareSelectors) {
+        try {
+          await page.waitForSelector(selector, { timeout: 5000 });
+          await page.click(selector);
+          console.log("Clicked Share using selector:", selector);
+          clicked = true;
+          break;
+        } catch (e) {
+          console.log("Share button not found with:", selector);
+        }
+      }
+
+      if (!clicked) {
+        console.error("Could not find Share button on post:", postUrl);
+        continue;
+      }
+
       await page.waitForTimeout(2000);
 
       // Select "Share to a group"
-      console.log("Selecting 'Share to a group'...");
-      await page.click('span:has-text("Share to a group")');
+      try {
+        await page.click('span:has-text("Share to a group")', { timeout: 8000 });
+        console.log("Opened 'Share to a group' dialog");
+      } catch (e) {
+        console.error("Could not open 'Share to a group' for:", postUrl);
+        continue;
+      }
+
       await page.waitForTimeout(3000);
 
-      // Extract group list
       const groups = await page.$$eval("div[role='option']", els =>
         els.map(e => e.textContent).filter(Boolean)
       );
 
       console.log("Groups found:", groups);
 
-      for (const group of groups) {
+      // Share only to first 2 groups for now (to avoid spam)
+      for (const group of groups.slice(0, 2)) {
         console.log("Sharing to:", group);
 
-        // Click group name
         await page.click(`div[role='option']:has-text("${group}")`);
         await page.waitForTimeout(1000);
 
-        // Click Post button
         await page.click('div[aria-label="Post"]');
         console.log("Posted to:", group);
 
         await page.waitForTimeout(4000);
 
-        // Reopen share dialog for next group
+        // Reopen share dialog for next group if needed
         if (group !== groups[groups.length - 1]) {
-          await page.click('div[aria-label="Send this to friends or post it on your profile."]');
-          await page.click('span:has-text("Share to a group")');
+          let reopened = false;
+          for (const selector of shareSelectors) {
+            try {
+              await page.waitForSelector(selector, { timeout: 5000 });
+              await page.click(selector);
+              await page.click('span:has-text("Share to a group")');
+              reopened = true;
+              break;
+            } catch (e) {}
+          }
+          if (!reopened) {
+            console.log("Could not reopen share dialog, stopping early");
+            break;
+          }
         }
       }
     }
