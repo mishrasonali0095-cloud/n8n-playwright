@@ -1,24 +1,17 @@
-# Playwright with browsers
-FROM mcr.microsoft.com/playwright:v1.48.2-focal
-
-USER root
-
-# Install Node.js 20
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get update && apt-get install -y nodejs \
-    && npm install -g npm@10
+FROM node:20-slim
 
 # Install n8n
-RUN npm install -g n8n@1.111.0
+RUN npm install -g n8n
 
-# Copy automation scripts
+# Copy scripts if you need them
 COPY scripts /home/node/scripts
 
-# Switch back to non-root
-USER node
+# Copy startup script
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
 
-# Expose default n8n port (Render replaces with $PORT)
-EXPOSE 5678
+# Expose the Render-assigned port
+EXPOSE $PORT
 
-# Start n8n
-CMD ["n8n", "start"]
+# Run through start script
+CMD ["/start.sh"]
