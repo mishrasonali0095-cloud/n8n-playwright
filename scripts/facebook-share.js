@@ -30,12 +30,18 @@ const { chromium } = require("playwright");
       console.log("Opening post:", postUrl);
       await page.goto(postUrl, { waitUntil: "networkidle" });
 
-      // Try multiple possible share button selectors
+      // DEBUG: log all buttons on the page
+      const buttons = await page.$$eval("div[role='button']", els =>
+        els.map(e => e.textContent.trim()).filter(Boolean)
+      );
+      console.log("Buttons detected:", buttons);
+
       const shareSelectors = [
         'div[aria-label="Send this to friends or post it on your profile."]',
         'div[aria-label="Share"]',
+        'div[role="button"]:has-text("Share")',
         'span:has-text("Share")',
-        'div[role="button"]:has-text("Share")'
+        'svg[aria-label="Share"]'
       ];
 
       let clicked = false;
@@ -51,14 +57,24 @@ const { chromium } = require("playwright");
         }
       }
 
+      // Fallback: check ⋯ menu
       if (!clicked) {
-        console.error("Could not find Share button on post:", postUrl);
-        continue;
+        try {
+          console.log("Trying 3-dot menu...");
+          await page.click('div[aria-label="Actions for this post"]'); // the ⋯ menu
+          await page.waitForTimeout(1000);
+          await page.click('span:has-text("Share")', { timeout: 5000 });
+          console.log("Clicked Share via 3-dot menu");
+          clicked = true;
+        } catch (e) {
+          console.error("Still could not find Share on:", postUrl);
+          continue;
+        }
       }
 
       await page.waitForTimeout(2000);
 
-      // Select "Share to a group"
+      // Share to group
       try {
         await page.click('span:has-text("Share to a group")', { timeout: 8000 });
         console.log("Opened 'Share to a group' dialog");
@@ -75,35 +91,13 @@ const { chromium } = require("playwright");
 
       console.log("Groups found:", groups);
 
-      // Share only to first 2 groups for now (to avoid spam)
       for (const group of groups.slice(0, 2)) {
         console.log("Sharing to:", group);
-
         await page.click(`div[role='option']:has-text("${group}")`);
         await page.waitForTimeout(1000);
-
         await page.click('div[aria-label="Post"]');
         console.log("Posted to:", group);
-
         await page.waitForTimeout(4000);
-
-        // Reopen share dialog for next group if needed
-        if (group !== groups[groups.length - 1]) {
-          let reopened = false;
-          for (const selector of shareSelectors) {
-            try {
-              await page.waitForSelector(selector, { timeout: 5000 });
-              await page.click(selector);
-              await page.click('span:has-text("Share to a group")');
-              reopened = true;
-              break;
-            } catch (e) {}
-          }
-          if (!reopened) {
-            console.log("Could not reopen share dialog, stopping early");
-            break;
-          }
-        }
       }
     }
 
