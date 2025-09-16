@@ -1,8 +1,8 @@
-FROM mcr.microsoft.com/playwright:v1.48.2-focal
+FROM mcr.microsoft.com/playwright:v1.55.0-focal
 
 USER root
 
-# Install Node.js 20.x
+# Install Node.js 20.x (Render requires >=20.19 <=24)
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && npm install -g npm@10
@@ -10,17 +10,18 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # Install n8n
 RUN npm install -g n8n@1.111.0
 
-# Copy your scripts (Playwright etc.)
+# Copy your Playwright automation scripts into container
 COPY scripts /home/node/scripts
 
 USER node
 
-# Environment variables for Render
+# Required for Render
 ENV N8N_HOST=0.0.0.0
 ENV N8N_PORT=$PORT
+ENV N8N_PROTOCOL=http
+ENV NODE_ENV=production
 
-# Expose default (Render overrides it with $PORT)
 EXPOSE 5678
 
-# Start n8n instead of exiting
+# Start n8n server
 CMD ["n8n", "start"]
