@@ -1,54 +1,82 @@
 // facebook-share.js
-const { chromium } = require('playwright');
+// Run with: node /home/node/scripts/facebook-share.js
+// Needs env vars: FB_USER, FB_PASS
+
+const { chromium } = require("playwright");
 
 (async () => {
-  const fbUser = process.env.FB_USER;
-  const fbPass = process.env.FB_PASS;
-  const groups = ["Group One", "Group Two"]; // put your group names here
-
-  const browser = await chromium.launch({
-    headless: true, // set false if you want to debug
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-
+  const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  console.log("Logging in...");
-  await page.goto("https://www.facebook.com/login");
-  await page.fill('input[name="email"]', fbUser);
-  await page.fill('input[name="pass"]', fbPass);
-  await page.click('button[name="login"]');
-  await page.waitForTimeout(5000);
+  const fbUser = process.env.FB_USER;
+  const fbPass = process.env.FB_PASS;
+  const friendPage = "https://www.facebook.com/Engagehubtique"; // <-- your friend’s page
 
-  console.log("Go to friend’s page...");
-  await page.goto("https://www.facebook.com/YourFriendsPage"); // <-- put page URL
-  await page.waitForSelector('div[role="article"]');
+  try {
+    console.log("Logging in...");
+    await page.goto("https://www.facebook.com/login", { waitUntil: "networkidle" });
+    await page.fill("#email", fbUser);
+    await page.fill("#pass", fbPass);
+    await page.click('button[name="login"]');
+    await page.waitForTimeout(5000);
 
-  // Select latest 2 posts
-  const posts = await page.$$('div[role="article"]');
-  const latestPosts = posts.slice(0, 2);
+    console.log("Go to friend's page...");
+    await page.goto(friendPage, { waitUntil: "networkidle" });
 
-  for (let post of latestPosts) {
-    console.log("Clicking Share...");
-    const shareBtn = await post.$('div[aria-label="Share"]');
-    if (!shareBtn) continue;
-    await shareBtn.click();
-    await page.waitForTimeout(2000);
+    // grab latest 2 posts
+    const postLinks = await page.$$eval("a[href*='/posts/']", links =>
+      [...new Set(links.map(l => l.href))].slice(0, 2)
+    );
 
-    for (let group of groups) {
-      console.log(`Sharing to: ${group}`);
+    console.log("Found posts:", postLinks);
+
+    for (const postUrl of postLinks) {
+      console.log("Opening post:", postUrl);
+      await page.goto(postUrl, { waitUntil: "networkidle" });
+
+      // Click Share button
+      console.log("Clicking Share...");
+      await page.click('div[aria-label="Send this to friends or post it on your profile."]');
+      await page.waitForTimeout(2000);
+
+      // Select "Share to a group"
+      console.log("Selecting 'Share to a group'...");
       await page.click('span:has-text("Share to a group")');
-      await page.waitForSelector('input[aria-label="Search for a group"]');
-      await page.fill('input[aria-label="Search for a group"]', group);
-      await page.waitForTimeout(2000);
-      await page.keyboard.press("Enter");
-      await page.waitForTimeout(2000);
-      await page.click('div[aria-label="Post"]');
-      await page.waitForTimeout(5000);
-    }
-  }
+      await page.waitForTimeout(3000);
 
-  console.log("Done!");
-  await browser.close();
+      // Extract group list
+      const groups = await page.$$eval("div[role='option']", els =>
+        els.map(e => e.textContent).filter(Boolean)
+      );
+
+      console.log("Groups found:", groups);
+
+      for (const group of groups) {
+        console.log("Sharing to:", group);
+
+        // Click group name
+        await page.click(`div[role='option']:has-text("${group}")`);
+        await page.waitForTimeout(1000);
+
+        // Click Post button
+        await page.click('div[aria-label="Post"]');
+        console.log("Posted to:", group);
+
+        await page.waitForTimeout(4000);
+
+        // Reopen share dialog for next group
+        if (group !== groups[groups.length - 1]) {
+          await page.click('div[aria-label="Send this to friends or post it on your profile."]');
+          await page.click('span:has-text("Share to a group")');
+        }
+      }
+    }
+
+    console.log("Done!");
+  } catch (err) {
+    console.error("Error:", err);
+  } finally {
+    await browser.close();
+  }
 })();
