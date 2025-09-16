@@ -1,110 +1,55 @@
 const { chromium } = require("playwright");
 
 (async () => {
+  const FB_USER = process.env.FB_USER;
+  const FB_PASS = process.env.FB_PASS;
+  const pageUrl = process.argv[2]; // post URL passed from n8n
+
+  if (!FB_USER || !FB_PASS) {
+    console.error("FB_USER and FB_PASS env variables are required");
+    process.exit(1);
+  }
+
+  console.log("Launching browser...");
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  const fbUser = process.env.FB_USER;
-  const fbPass = process.env.FB_PASS;
-  const friendPage = "https://www.facebook.com/Engagehubtique";
+  console.log("Logging in...");
+  await page.goto("https://www.facebook.com/login", { waitUntil: "networkidle" });
+  await page.fill('input[name="email"]', FB_USER);
+  await page.fill('input[name="pass"]', FB_PASS);
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: "networkidle" }),
+    page.click('button[name="login"]'),
+  ]);
 
-  try {
-    console.log("Logging in...");
-    await page.goto("https://www.facebook.com/login", { waitUntil: "networkidle" });
-    await page.fill("#email", fbUser);
-    await page.fill("#pass", fbPass);
-    await page.click('button[name="login"]');
-    await page.waitForTimeout(5000);
+  console.log("Opening post:", pageUrl);
+  await page.goto(pageUrl, { waitUntil: "networkidle" });
+  await page.waitForTimeout(4000);
 
-    console.log("Go to friend's page...");
-    await page.goto(friendPage, { waitUntil: "networkidle" });
+  // Scroll to reveal footer
+  await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+  await page.waitForTimeout(2000);
 
-    const postLinks = await page.$$eval("a[href*='/posts/']", links =>
-      [...new Set(links.map(l => l.href))].slice(0, 2)
-    );
+  console.log("Clicking Share...");
+  const shareBtn = page.locator('div[aria-label="Share"]');
+  await shareBtn.first().click();
 
-    console.log("Found posts:", postLinks);
+  console.log("Waiting for Share options...");
+  await page.waitForSelector('span:text("Share to a group")', { timeout: 10000 });
+  await page.locator('span:text("Share to a group")').click();
 
-    for (const postUrl of postLinks) {
-      console.log("Opening post:", postUrl);
-      await page.goto(postUrl, { waitUntil: "networkidle" });
+  console.log("Selecting group...");
+  await page.waitForSelector('input[aria-label="Search for a group"]', { timeout: 10000 });
+  // Type your group name (or leave blank if default works)
+  await page.keyboard.type("My Group Name");
+  await page.keyboard.press("Enter");
 
-      // DEBUG: log all buttons on the page
-      const buttons = await page.$$eval("div[role='button']", els =>
-        els.map(e => e.textContent.trim()).filter(Boolean)
-      );
-      console.log("Buttons detected:", buttons);
+  console.log("Posting...");
+  await page.waitForSelector('div[aria-label="Post"]', { timeout: 10000 });
+  await page.locator('div[aria-label="Post"]').click();
 
-      const shareSelectors = [
-        'div[aria-label="Send this to friends or post it on your profile."]',
-        'div[aria-label="Share"]',
-        'div[role="button"]:has-text("Share")',
-        'span:has-text("Share")',
-        'svg[aria-label="Share"]'
-      ];
-
-      let clicked = false;
-      for (const selector of shareSelectors) {
-        try {
-          await page.waitForSelector(selector, { timeout: 5000 });
-          await page.click(selector);
-          console.log("Clicked Share using selector:", selector);
-          clicked = true;
-          break;
-        } catch (e) {
-          console.log("Share button not found with:", selector);
-        }
-      }
-
-      // Fallback: check ⋯ menu
-      if (!clicked) {
-        try {
-          console.log("Trying 3-dot menu...");
-          await page.click('div[aria-label="Actions for this post"]'); // the ⋯ menu
-          await page.waitForTimeout(1000);
-          await page.click('span:has-text("Share")', { timeout: 5000 });
-          console.log("Clicked Share via 3-dot menu");
-          clicked = true;
-        } catch (e) {
-          console.error("Still could not find Share on:", postUrl);
-          continue;
-        }
-      }
-
-      await page.waitForTimeout(2000);
-
-      // Share to group
-      try {
-        await page.click('span:has-text("Share to a group")', { timeout: 8000 });
-        console.log("Opened 'Share to a group' dialog");
-      } catch (e) {
-        console.error("Could not open 'Share to a group' for:", postUrl);
-        continue;
-      }
-
-      await page.waitForTimeout(3000);
-
-      const groups = await page.$$eval("div[role='option']", els =>
-        els.map(e => e.textContent).filter(Boolean)
-      );
-
-      console.log("Groups found:", groups);
-
-      for (const group of groups.slice(0, 2)) {
-        console.log("Sharing to:", group);
-        await page.click(`div[role='option']:has-text("${group}")`);
-        await page.waitForTimeout(1000);
-        await page.click('div[aria-label="Post"]');
-        console.log("Posted to:", group);
-        await page.waitForTimeout(4000);
-      }
-    }
-
-    console.log("Done!");
-  } catch (err) {
-    console.error("Error:", err);
-  } finally {
-    await browser.close();
-  }
+  console.log("✅ Successfully shared!");
+  await browser.close();
 })();
