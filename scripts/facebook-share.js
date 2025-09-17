@@ -1,119 +1,104 @@
-// facebook-share.js
-// Automates logging into Facebook, going to a friend's page, grabbing recent posts,
-// and sharing them to groups using Playwright.
-
 const { chromium } = require("playwright");
 
 (async () => {
-  const FB_USER = process.env.FB_USER;
-  const FB_PASS = process.env.FB_PASS;
-  const FRIEND_PAGE = "https://www.facebook.com/Engagehubtique"; // change if needed
-
-  if (!FB_USER || !FB_PASS) {
-    console.error("❌ FB_USER and FB_PASS must be set as environment variables.");
-    process.exit(1);
-  }
-
-  const browser = await chromium.launch({
-    headless: true, // set false if debugging
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-
+  const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
 
   try {
-    console.log("🔑 Logging in...");
-    await page.goto("https://www.facebook.com/login", {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
+    console.log("🔐 Logging in...");
+    await page.goto("https://www.facebook.com/login", { waitUntil: "domcontentloaded" });
 
-    await page.fill('input[name="email"]', FB_USER);
-    await page.fill('input[name="pass"]', FB_PASS);
+    await page.fill("#email", process.env.FB_USER);
+    await page.fill("#pass", process.env.FB_PASS);
     await page.click('button[name="login"]');
 
-    // Wait until feed/homepage loads
-    await page.waitForSelector('[role="feed"], [aria-label="Create a post"]', {
-      timeout: 60000,
-    });
+    // Wait for login success
+    await page.waitForSelector('input[aria-label="Search Facebook"]', { timeout: 60000 });
+    console.log("✅ Logged in");
 
-    console.log("➡️ Navigating to friend's page...");
-    await page.goto(FRIEND_PAGE, {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
-    await page.waitForSelector('div[role="main"]', { timeout: 60000 });
+    console.log("➡️ Go to friend's page...");
+    await page.goto("https://www.facebook.com/Engagehubtique", { waitUntil: "domcontentloaded" });
 
-    // Grab latest posts
-    console.log("🔎 Collecting posts...");
-    const posts = await page.$$eval("a", (links) =>
-      links
-        .map((a) => a.href)
-        .filter((href) => href.includes("/posts/"))
-        .slice(0, 2)
+    // Wait for posts feed
+    await page.waitForSelector('[role="feed"]', { timeout: 60000 });
+    console.log("✅ Page loaded");
+
+    // Find posts (simplified)
+    const posts = await page.$$eval('a[href*="/posts/"]', els =>
+      [...new Set(els.map(el => el.href))].slice(0, 2)
     );
 
-    if (!posts.length) {
-      console.error("❌ No posts found.");
-      await browser.close();
-      process.exit(1);
-    }
+    console.log("📝 Found posts:", posts);
 
-    console.log("✅ Found posts:", posts);
+    const groups = ["Russia Friends", "मराठी मैत्री ग्रुप"];
 
     for (const postUrl of posts) {
       console.log(`➡️ Opening post: ${postUrl}`);
-      await page.goto(postUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+      await page.goto(postUrl, { waitUntil: "domcontentloaded" });
 
-      // Wait for share button (different selectors possible)
-      const shareButton =
+      // Open Share menu
+      const shareBtn =
         (await page.$('div[aria-label="Share"]')) ||
         (await page.$('span:has-text("Share")'));
 
-      if (!shareButton) {
+      if (!shareBtn) {
         console.warn(`⚠️ Share button not found on ${postUrl}`);
         continue;
       }
-
-      console.log("📌 Clicking Share...");
-      await shareButton.click();
-      await page.waitForTimeout(3000);
+      await shareBtn.click();
+      await page.waitForTimeout(2000);
 
       // Click "Share to a group"
       const groupOption = await page.$('span:has-text("Share to a group")');
       if (!groupOption) {
-        console.warn("⚠️ 'Share to a group' option not found.");
+        console.warn("⚠️ 'Share to a group' option missing");
         continue;
       }
       await groupOption.click();
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(2000);
 
-      // Choose first group from list
-      const firstGroup = await page.$('div[role="option"]');
-      if (!firstGroup) {
-        console.warn("⚠️ No group option found.");
-        continue;
+      // Loop through group names
+      for (const groupName of groups) {
+        console.log(`📌 Sharing to: ${groupName}`);
+
+        const searchBox = await page.$('input[aria-label="Search for groups"]');
+        if (!searchBox) {
+          console.warn("⚠️ No group search box.");
+          continue;
+        }
+
+        await searchBox.fill("");
+        await searchBox.type(groupName, { delay: 100 });
+        await page.waitForTimeout(3000);
+
+        // Pick first result
+        const firstResult = await page.$('div[role="option"]');
+        if (!firstResult) {
+          console.warn(`⚠️ Group not found: ${groupName}`);
+          continue;
+        }
+        await firstResult.click();
+
+        // Click Post
+        const postBtn =
+          (await page.$('div[aria-label="Post"]')) ||
+          (await page.$('div[role="button"]:has-text("Post")'));
+        if (postBtn) {
+          await postBtn.click();
+          console.log(`✅ Shared ${postUrl} to ${groupName}`);
+        } else {
+          console.warn("⚠️ Post button not found.");
+        }
+
+        await page.waitForTimeout(4000);
       }
-      await firstGroup.click();
-
-      // Click Post
-      const postButton = await page.$('div[aria-label="Post"], div[role="button"]:has-text("Post")');
-      if (postButton) {
-        await postButton.click();
-        console.log(`✅ Shared ${postUrl} to group.`);
-      } else {
-        console.warn("⚠️ Post button not found.");
-      }
-
-      await page.waitForTimeout(5000);
     }
 
     console.log("🎉 Done!");
-    await browser.close();
   } catch (err) {
     console.error("❌ Error:", err);
+  } finally {
     await browser.close();
-    process.exit(1);
   }
 })();
